@@ -13,6 +13,7 @@ from tqdm import tqdm
 import dataloaders.dataloader as dataloader
 from evaluate import evaluate
 from model.deeplab import *
+from model.sync_batchnorm.replicate import patch_replication_callback
 from utils.loss import loss_fns
 from utils.lr_scheduler import LR_Scheduler
 from utils.metrics import Evaluator
@@ -44,18 +45,20 @@ def train(model, dataloader, optimizer, loss_fns, scheduler, evaluator, epoch, p
         for i, sample in enumerate(dataloader):
             train_batch, labels_batch = sample['image'], sample['label']
             if params.cuda:
-                train_batch, labels_batch = train_batch.cuda(
-                    non_blocking=True), labels_batch.cuda(non_blocking=True)
+                train_batch, labels_batch = train_batch.cuda(), labels_batch.cuda()
 
             labels_batch = labels_batch.long()
 
-            # Forward
-            output_batch = model(train_batch).float()
-
-            # Backward
-            loss = loss_fns['CrossEntropy'](output_batch, labels_batch)
             current_lr = scheduler(optimizer, i, epoch)
             optimizer.zero_grad()
+
+            # Forward
+            output_batch = model(train_batch)
+
+            # Backward
+            criterion = loss_fns['CrossEntropy'](params)
+            loss = criterion(output_batch, labels_batch)
+            
             loss.backward()
             optimizer.step()
 
@@ -150,18 +153,11 @@ if __name__ == '__main__':
 
     logging.info("-done")
 
-    if params.cuda:
-        model = DeepLab(num_classes=args.num_classes,
-                        backbone="resnet",
-                        output_stride=16,
-                        sync_bn=False,
-                        freeze_bn=False).cuda()
-    else:
-        model = DeepLab(num_classes=args.num_classes,
-                        backbone="resnet",
-                        output_stride=16,
-                        sync_bn=False,
-                        freeze_bn=False)
+    model = DeepLab(num_classes=args.num_classes,
+                    backbone="resnet",
+                    output_stride=16,
+                    sync_bn=False,
+                    freeze_bn=False)
 
     logging.info("-Model Type: {}".format(args.model_type))
 
@@ -170,6 +166,11 @@ if __name__ == '__main__':
     
     optimizer = optim.SGD(train_params, momentum=params.momentum,
                                 weight_decay=params.weight_decay)
+
+    if params.cuda:
+        model = nn.DataParallel(model, device_ids=[0])
+        patch_replication_callback(model)
+        model = model.cuda()
 
     scheduler = LR_Scheduler("poly", params.learning_rate,
                             params.num_epochs, len(train_dl))

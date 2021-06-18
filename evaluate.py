@@ -12,6 +12,7 @@ from tqdm import tqdm
 
 import dataloaders.dataloader as dataloader
 from model.deeplab import *
+from model.sync_batchnorm.replicate import patch_replication_callback
 from utils.loss import loss_fns
 from utils.metrics import Evaluator
 import utils.utils as utils
@@ -37,14 +38,14 @@ def evaluate(model, dataloader, loss_fns, evaluator, params):
             with torch.no_grad():
                 data_batch, labels_batch = sample['image'], sample['label']
                 if params.cuda:
-                    data_batch, labels_batch = data_batch.cuda(
-                        non_blocking=True), labels_batch.cuda(non_blocking=True)
+                    data_batch, labels_batch = data_batch.cuda(), labels_batch.cuda()
 
                 labels_batch=labels_batch.long()
                 
-                output_batch = model(data_batch).float()
+                output_batch = model(data_batch)
 
-                loss = loss_fns['CrossEntropy'](output_batch, labels_batch)
+                criterion = loss_fns['CrossEntropy'](params)
+                loss = criterion(output_batch, labels_batch)
 
                 output_batch = output_batch.data.cpu().numpy()
                 data_batch = data_batch.data.cpu().numpy()
@@ -88,18 +89,16 @@ if __name__ == '__main__':
 
     logging.info("-done")
 
+    model = DeepLab(num_classes=args.num_classes,
+                    backbone="resnet",
+                    output_stride=16,
+                    sync_bn=False,
+                    freeze_bn=False)
+
     if params.cuda:
-        model = DeepLab(num_classes=args.num_classes,
-                        backbone="resnet",
-                        output_stride=16,
-                        sync_bn=False,
-                        freeze_bn=False).cuda()
-    else:
-        model = DeepLab(num_classes=args.num_classes,
-                        backbone="resnet",
-                        output_stride=16,
-                        sync_bn=False,
-                        freeze_bn=False)
+        model = nn.DataParallel(model, device_ids=[0])
+        patch_replication_callback(model)
+        model = model.cuda()
 
     logging.info("-Model Type: {}".format(args.model_type))
 
