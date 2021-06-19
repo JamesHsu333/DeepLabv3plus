@@ -27,7 +27,7 @@ parser.add_argument('--num_classes', default=21,
 parser.add_argument('--restore_file', default='best', help="name of the file in --model_dir \
                      containing weights to load")
 
-def evaluate(model, dataloader, loss_fns, evaluator, params):
+def evaluate(model, dataloader, loss_fns, evaluator, writer, epoch, params):
     model.eval()
     evaluator.reset()
     loss_avg = utils.RunningAverage()
@@ -35,28 +35,32 @@ def evaluate(model, dataloader, loss_fns, evaluator, params):
     # Use tqdm for progress bar
     with tqdm(total=len(dataloader)) as t:
         for sample in dataloader:
-            with torch.no_grad():
-                data_batch, labels_batch = sample['image'], sample['label']
-                if params.cuda:
-                    data_batch, labels_batch = data_batch.cuda(), labels_batch.cuda()
+            data_batch, labels_batch = sample['image'], sample['label']
+            if params.cuda:
+                data_batch, labels_batch = data_batch.cuda(), labels_batch.cuda()
 
-                labels_batch=labels_batch.long()
-                
+            with torch.no_grad():
                 output_batch = model(data_batch)
 
-                criterion = loss_fns['CrossEntropy'](params)
-                loss = criterion(output_batch, labels_batch)
+            loss = loss_fns['CrossEntropy'](params, output_batch, labels_batch)
 
-                output_batch = output_batch.data.cpu().numpy()
-                data_batch = data_batch.data.cpu().numpy()
-                labels_batch = labels_batch.data.cpu().numpy()
+            output_batch = output_batch.data.cpu().numpy()
+            data_batch = data_batch.data.cpu().numpy()
+            labels_batch = labels_batch.data.cpu().numpy()
 
-                evaluator.add_batch(labels_batch, output_batch)
-                # update the average loss
-                loss_avg.update(loss.item())
+            output_batch = np.argmax(output_batch, axis=1)
+
+            evaluator.add_batch(labels_batch, output_batch)
+            # update the average loss
+            loss_avg.update(loss.item())
                 
-                t.set_postfix(loss='{:05.3f}'.format(loss_avg()))
-                t.update()
+            t.set_postfix(loss='{:05.3f}'.format(loss_avg()))
+            t.update()
+    writer.add_scalar('val/mean_loss_epoch', loss_avg(), epoch)
+    writer.add_scalar('val/mIoU', evaluator.Mean_Intersection_over_Union(), epoch)
+    writer.add_scalar('val/Acc', evaluator.Pixel_Accuracy(), epoch)
+    writer.add_scalar('val/Acc_class', evaluator.Pixel_Accuracy_Class(), epoch)
+    writer.add_scalar('val/fwIoU', evaluator.Frequency_Weighted_Intersection_over_Union(), epoch)
     metrics_mean = {'mIOU': evaluator.Mean_Intersection_over_Union(), 'loss': loss_avg()}
     metrics_string = " ; ".join("{}: {:05.3f}".format(k, v)
                                 for k, v in metrics_mean.items())

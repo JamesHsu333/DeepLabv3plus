@@ -39,10 +39,8 @@ class Evaluator(object):
         return confusion_matrix
 
     def add_batch(self, gt_image, pre_image):
-        for gt, pre in zip(gt_image, pre_image):
-            pre = np.argmax(pre, axis=0)
-            assert gt.shape == pre.shape
-            self.confusion_matrix += self._generate_matrix(gt.flatten(), pre.flatten())
+        assert gt_image.shape == pre_image.shape
+        self.confusion_matrix += self._generate_matrix(gt_image, pre_image)
 
     def reset(self):
         self.confusion_matrix = np.zeros((self.num_class,) * 2)

@@ -17,6 +17,7 @@ from model.sync_batchnorm.replicate import patch_replication_callback
 from utils.loss import loss_fns
 from utils.lr_scheduler import LR_Scheduler
 from utils.metrics import Evaluator
+from utils.summary import TensorboardSummary
 import utils.utils as utils
 
 
@@ -32,7 +33,7 @@ parser.add_argument('--restore_file', default=None,
                     training")
 
 
-def train(model, dataloader, optimizer, loss_fns, scheduler, evaluator, epoch, params):
+def train(model, dataloader, optimizer, loss_fns, scheduler, evaluator, writer, epoch, params):
     # Set model to training mode
     model.train()
 
@@ -47,8 +48,6 @@ def train(model, dataloader, optimizer, loss_fns, scheduler, evaluator, epoch, p
             if params.cuda:
                 train_batch, labels_batch = train_batch.cuda(), labels_batch.cuda()
 
-            labels_batch = labels_batch.long()
-
             current_lr = scheduler(optimizer, i, epoch)
             optimizer.zero_grad()
 
@@ -56,9 +55,8 @@ def train(model, dataloader, optimizer, loss_fns, scheduler, evaluator, epoch, p
             output_batch = model(train_batch)
 
             # Backward
-            criterion = loss_fns['CrossEntropy'](params)
-            loss = criterion(output_batch, labels_batch)
-            
+            loss = loss_fns['CrossEntropy'](params, output_batch, labels_batch)
+
             loss.backward()
             optimizer.step()
 
@@ -66,15 +64,24 @@ def train(model, dataloader, optimizer, loss_fns, scheduler, evaluator, epoch, p
             if i % params.save_summary_steps == 0:
                 output_batch = output_batch.data.cpu().numpy()
                 labels_batch = labels_batch.data.cpu().numpy()
+
+                output_batch = np.argmax(output_batch, axis=1)
+
                 evaluator.add_batch(labels_batch, output_batch)
 
             # update the average loss
             loss_avg.update(loss.item())
 
-            t.set_postfix(loss='{:05.3f}'.format(loss_avg()), lr='{:05.3f}'.format(current_lr))
+            # tensorboard summary
+            writer.add_scalar('train/total_loss_iter',
+                              loss.item(), i + len(dataloader) * epoch)
+
+            t.set_postfix(loss='{:05.3f}'.format(
+                loss_avg()), lr='{:05.3f}'.format(current_lr))
             t.update()
 
     # compute mean of all metrics in summary
+    writer.add_scalar('train/mean_loss_epoch', loss_avg(), epoch)
     metrics_mean = {
         'mIOU': evaluator.Mean_Intersection_over_Union(), 'loss': loss_avg()}
     metrics_string = " ; ".join("{}: {:05.3f}".format(k, v)
@@ -82,7 +89,7 @@ def train(model, dataloader, optimizer, loss_fns, scheduler, evaluator, epoch, p
     logging.info("- Train metrics: " + metrics_string)
 
 
-def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, loss_fns, scheduler, evaluator, params, model_dir, name,
+def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, loss_fns, scheduler, evaluator, writer, params, model_dir, name,
                        restore_file=None):
     if restore_file is not None:
         restore_path = os.path.join(
@@ -97,10 +104,12 @@ def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, loss_
         logging.info("Epoch {}/{}".format(epoch + 1, params.num_epochs))
 
         # compute number of batches in one epoch (one full pass over the training set)
-        train(model, train_dataloader, optimizer, loss_fns, scheduler, evaluator, epoch, params)
+        train(model, train_dataloader, optimizer, loss_fns,
+              scheduler, evaluator, writer, epoch, params)
 
         # Evaluate for one epoch on validation set
-        val_metrics = evaluate(model, val_dataloader, loss_fns, evaluator, params)
+        val_metrics = evaluate(model, val_dataloader,
+                               loss_fns, evaluator, writer, epoch, params)
 
         val_acc = val_metrics['mIOU']
         is_best = val_acc >= best_val_acc
@@ -163,9 +172,9 @@ if __name__ == '__main__':
 
     train_params = [{'params': model.get_1x_lr_params(), 'lr': params.learning_rate},
                     {'params': model.get_10x_lr_params(), 'lr': params.learning_rate * 10}]
-    
+
     optimizer = optim.SGD(train_params, momentum=params.momentum,
-                                weight_decay=params.weight_decay)
+                          weight_decay=params.weight_decay)
 
     if params.cuda:
         model = nn.DataParallel(model, device_ids=[0])
@@ -173,12 +182,16 @@ if __name__ == '__main__':
         model = model.cuda()
 
     scheduler = LR_Scheduler("poly", params.learning_rate,
-                            params.num_epochs, len(train_dl))
+                             params.num_epochs, len(train_dl))
 
     loss_fns = loss_fns
+
+    # Define Tensorboard Summary
+    summary = TensorboardSummary(args.model_dir)
+    writer = summary.create_summary()
 
     evaluator = Evaluator(20+1)
 
     logging.info("Starting training for {} epoch(s)".format(params.num_epochs))
     train_and_evaluate(model, train_dl, val_dl, optimizer, loss_fns, scheduler, evaluator,
-                       params, args.model_dir, args.model_type, args.restore_file)
+                       writer, params, args.model_dir, args.model_type, args.restore_file)
