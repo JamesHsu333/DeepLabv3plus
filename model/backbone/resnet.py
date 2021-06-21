@@ -119,9 +119,11 @@ class ResNet(nn.Module):
         x = self.layer1(x)
         low_level_feat = x
         x = self.layer2(x)
+        x2 = x
         x = self.layer3(x)
+        x3 = x
         x = self.layer4(x)
-        return x, low_level_feat
+        return x, low_level_feat, x2, x3
 
     def _init_weight(self):
         for m in self.modules():

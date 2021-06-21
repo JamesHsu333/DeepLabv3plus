@@ -162,11 +162,19 @@ if __name__ == '__main__':
 
     logging.info("-done")
 
-    model = DeepLab(num_classes=args.num_classes,
-                    backbone="resnet",
-                    output_stride=16,
-                    sync_bn=False,
-                    freeze_bn=False)
+    if args.model_type=='deeplabU':
+        model = DeepLabU(num_classes=args.num_classes,
+                        backbone="resnet",
+                        output_stride=16,
+                        sync_bn=False,
+                        freeze_bn=False)
+    else:
+        model = DeepLab(num_classes=args.num_classes,
+                        backbone="resnet",
+                        output_stride=16,
+                        sync_bn=False,
+                        freeze_bn=False)
+
 
     logging.info("-Model Type: {}".format(args.model_type))
 
