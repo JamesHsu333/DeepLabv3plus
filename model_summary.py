@@ -10,7 +10,7 @@ model = DeepLab(num_classes=21,
                 sync_bn=None,
                 freeze_bn=False).cuda()
 """
-model = DeepLab(num_classes=21,
+model = DeepLab_GCN(num_classes=21,
                 backbone="resnet",
                 output_stride=16,
                 sync_bn=None,

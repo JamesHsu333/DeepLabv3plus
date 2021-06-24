@@ -41,7 +41,7 @@ if __name__ == "__main__":
     params = utils.Params(json_path)
 
     # Perform hypersearch over one parameter
-    models = ['deeplabU']
+    models = ['deeplab_GCN']
 
     for model in models:
         # Launch job (name has to be unique)
