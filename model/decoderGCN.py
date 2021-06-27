@@ -16,7 +16,7 @@ class Decoder_GCN(nn.Module):
         else:
             raise NotImplementedError
 
-        k=15
+        k=7
 
         self.conv1 = nn.Conv2d(low_level_inplanes, 48, 1, bias=False)
         self.bn1 = BatchNorm(48)
@@ -25,10 +25,11 @@ class Decoder_GCN(nn.Module):
         self.conv_l2 = nn.Conv2d(num_classes, num_classes, kernel_size=(1,k), padding =(0,(k-1)//2))
         self.conv_r1 = nn.Conv2d(304, num_classes, kernel_size=(1,k), padding =((k-1)//2,0))
         self.conv_r2 = nn.Conv2d(num_classes, num_classes, kernel_size=(k,1), padding =(0,(k-1)//2))
-        self.br = nn.Sequential(nn.Conv2d(num_classes, num_classes, kernel_size=3, padding=1),
+        self.br = nn.Sequential(nn.Dropout(0.5),
+                                nn.Conv2d(num_classes, num_classes, kernel_size=3, padding=1),
                                 BatchNorm(num_classes),
                                 nn.ReLU(),
-                                nn.Dropout(0.5),
+                                nn.Dropout(0.1),
                                 nn.Conv2d(num_classes, num_classes, kernel_size=3, padding=1))
         self._init_weight()
 
